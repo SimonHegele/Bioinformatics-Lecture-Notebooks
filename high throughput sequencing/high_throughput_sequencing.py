@@ -7,6 +7,10 @@ from networkx   import circular_layout, DiGraph, draw_networkx_nodes, draw_netwo
 from numpy      import amax
 from numpy      import log2
 
+### 1. Genome Assembly ###
+
+### 1.1. Hamilton
+
 def maximum_overlap(string_1: str, string_2: str):
     '''
     Returns: length of the longest suffix of string_1 that is also prefix of string_2
@@ -94,6 +98,8 @@ def merge_strings_from_list(strings: list):
         s  = merge_strings(s, strings[i])
     return s
 
+### 1.2. Euler ###
+
 def k_mer_graph(strings: list, k: int):
     G = DiGraph()
     for string in strings:
@@ -129,6 +135,10 @@ def draw_k_mer_graph(G, axes):
     # 4. Edge labels
     draw_networkx_edge_labels(G, pos, edge_labels=get_edge_attributes(G, 'weight'), font_size=25, ax=axes)
 
+### 2. Read mapping ###
+
+### 2.1. Read mapping . Bowtie ###
+
 def generate_rotations(string: str):
     '''
     Parameters:
@@ -136,7 +146,84 @@ def generate_rotations(string: str):
     Returns:
         A list of all rotations of string+'$'
     '''
-    return [(string+'$')[i:]+(string+'$')[:i] for i in range(0,len(string+'$'))]
+    return [(string)[i:]+(string)[:i] for i in range(0,len(string))]
 
-def burrows_wheeler_indices(strings: list):
-    return {strings[i][0]: i for i in range(1, len(strings)) if strings[i][0]!=strings[i-1][0]}
+def count_character_occurence(string: str, alphabet: dict):
+    ''' 
+    Parameters:
+        string   (string)
+        alphabet (dict), key:    characters of the alphabet
+                         values: 0 (a counter for the occurences of the characters in )
+    Returns:
+        counts (list), counts[i] is the i-th occurence of the character in the string at the position i
+    '''
+    counts   = [0 for i in range(len(string))]
+    for i, character in enumerate(string):
+        alphabet[character] += 1
+        counts[i] = alphabet[character]
+    return counts
+
+class Bowtie:
+
+    def __init__(self, genome:str):
+        
+        genome      = genome if genome.endswith('$') else genome+'$'
+        alphabet    = sorted(list(set([character for character in genome])))
+        bw_matrix   = sorted(generate_rotations(genome))
+        first_col   = ''.join([string[ 0] for string in bw_matrix])
+        last_col    = ''.join([string[-1] for string in bw_matrix])
+        count       = {character: -1 for character in alphabet}
+        genome_i    = count_character_occurence(genome, count.copy())
+        first_col_i = count_character_occurence(first_col, count.copy())
+        last_col_i  = count_character_occurence(last_col, count.copy())
+        bw_indices  = {first_col[i]: i for i in range(len(first_col)) if first_col[i]!=first_col[i-1]}
+
+        self.alphabet                = alphabet
+        self.genome                  = genome
+        self.genome_i                = genome_i
+        self.first_col_i             = first_col_i    
+        self.bw_transformed_genome   = last_col
+        self.bw_transformed_genome_i = last_col_i
+        self.bw_indices              = bw_indices
+        self.bw_matrix               = bw_matrix 
+
+    def bw_matrix_formatted(self, indices: list, alignment_length=0):
+        '''
+        Parameters:
+            indices (list),
+            alignment_length (int)
+        Returns:
+            Nicely formatted bw_matrix for displaying purposes
+            The indeces tell in which rows an alignment step is to be highlighted
+        '''
+        return [f'{i if i>9 else " "+str(i)} {"->" if i in indices else "  "} {self.first_col_i[i]} ' +
+                f'{row[:alignment_length].upper() + row[alignment_length:] if (i in indices and alignment_length>0) else row} '+
+                f'{self.bw_transformed_genome_i[i]} {"<-" if i in indices else "  "}'
+                   for i, row in enumerate(self.bw_matrix)]
+
+    def match_next_character(self, last_aligned_character, character_to_align, allowed_i):
+        start = self.bw_indices[last_aligned_character]
+        end   = min([index for index in self.bw_indices.values() if index>self.bw_indices[last_aligned_character]])
+        rows  = [row for row in range(start,end) if character_to_align==self.bw_transformed_genome[row] and self.first_col_i[row] in allowed_i]
+        print(f'matched previously: {last_aligned_character}')
+        print(f'matches now: {character_to_align}')
+        return  [self.bw_transformed_genome_i[i] for i in rows]
+    
+    def map_read(self, read):
+        # Start of the procedure: Mapping of the first character
+        first_character = read[-1]
+        first   = read[len(read)-1]
+        start   = self.bw_indices[first]
+        end     = min([index for index in self.bw_indices.values() if index>self.bw_indices[first]])
+        allowed_character_indices = list(range(end-start))
+        allowed_first_row_indices = list(range(start, end))
+        out = [print(row) for row in self.bw_matrix_formatted(allowed_first_row_indices, alignment_length=1)]
+        
+        # Iterating remaining steps
+        reversed_read = read[::-1]
+        for i, character in enumerate(reversed_read):
+            if i+1 < len(reversed_read):
+                print()
+                allowed_character_indices = self.match_next_character(reversed_read[i], reversed_read[i+1], allowed_character_indices)
+                allowed_first_row_indices = [self.bw_indices[read[i]]+j for j in allowed_character_indices]
+                out = [print(row) for row in self.bw_matrix_formatted(allowed_first_row_indices, alignment_length=i+2)]
