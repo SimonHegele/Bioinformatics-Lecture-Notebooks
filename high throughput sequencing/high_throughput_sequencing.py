@@ -203,8 +203,12 @@ class Bowtie:
 
     def match_next_character(self, last_aligned_character, character_to_align, allowed_i):
         start = self.bw_indices[last_aligned_character]
-        end   = min([index for index in self.bw_indices.values() if index>self.bw_indices[last_aligned_character]])
-        rows  = [row for row in range(start,end) if character_to_align==self.bw_transformed_genome[row] and self.first_col_i[row] in allowed_i]
+        try:
+            end   = min([index for index in self.bw_indices.values() if index>self.bw_indices[last_aligned_character]])
+            rows  = [row for row in range(start,end) if character_to_align==self.bw_transformed_genome[row] and self.first_col_i[row] in allowed_i]
+        except:
+            self.error_message(last_aligned_character, character_to_align)
+            return
         print(f'matched previously: {last_aligned_character}')
         print(f'matches now: {character_to_align}')
         return  [self.bw_transformed_genome_i[i] for i in rows]
